@@ -35,8 +35,8 @@ class Creator
         string $mapName = 'map',
         int $limit = 50000
     ) {
-        $this->basePath   = $basePath;
-        $this->baseUrl    = $baseUrl;
+        $this->basePath   = rtrim($basePath, '/') . '/';
+        $this->baseUrl    = rtrim($baseUrl, '/') . '/';
         $this->indexName  = $indexName;
         $this->mapName    = $mapName;
         $this->limit      = $limit;
@@ -55,16 +55,16 @@ class Creator
      */
     public function add(string $url, float $priority = 0.5, string $frequency = self::MONTHLY, ?int $lastmod = null, ?string $deepLinking = null)
     {
+        $url      = ltrim($url, '/');
         $prevprio = $this->urls[$url]['priority'] ?? null;
-        $prevmod = $this->urls[$url]['lastmod'] ?? null;
-        $lastmod = date('Y-m-d\TH:i:sP', $lastmod ?? time());
+        $prevmod  = $this->urls[$url]['lastmod'] ?? null;
+        $lastmod  = date('Y-m-d\TH:i:sP', $lastmod ?? time());
 
-        // Append url
         $this->urls[$url] = [
-            'url' => $this->baseUrl . $url,
-            'priority' => self::value($prevprio, $priority),
-            'frequency' => $frequency,
-            'lastmod' => self::value($prevmod, $lastmod),
+            'url'         => $this->baseUrl . $url,
+            'priority'    => self::value($prevprio, $priority),
+            'frequency'   => $frequency,
+            'lastmod'     => self::value($prevmod, $lastmod),
             'deepLinking' => $deepLinking,
         ];
     }
