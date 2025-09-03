@@ -24,7 +24,12 @@ class Creator
     private string $indexName;
     private string $mapName;
     private int $limit;
+
     private array $urls = [];
+    private array $mapPaths = [];
+
+    private ?GzWriter $writer = null;
+    private int $nbUrls = 0;
 
     // -------------------------------------------------------------------------
 
@@ -55,72 +60,56 @@ class Creator
      */
     public function add(string $url, float $priority = 0.5, string $frequency = self::MONTHLY, ?int $lastmod = null, ?string $deepLinking = null)
     {
-        $url      = ltrim($url, '/');
-        $prevprio = $this->urls[$url]['priority'] ?? null;
-        $prevmod  = $this->urls[$url]['lastmod'] ?? null;
-        $lastmod  = date('Y-m-d\TH:i:sP', $lastmod ?? time());
+        $url = ltrim($url, '/');
 
-        $this->urls[$url] = [
+        if (isset($this->urls[$url])) {
+            return;
+        }
+
+        if ($this->nbUrls === 0 || $this->nbUrls >= $this->limit) {
+            $this->open();
+        }
+
+        $this->urls[$url] = true;
+        $this->nbUrls++;
+
+        $this->writer->write(self::tplUrl([
             'url'         => $this->baseUrl . $url,
-            'priority'    => self::value($prevprio, $priority),
+            'priority'    => $priority,
             'frequency'   => $frequency,
-            'lastmod'     => self::value($prevmod, $lastmod),
+            'lastmod'     => date('Y-m-d\TH:i:sP', $lastmod ?? time()),
             'deepLinking' => $deepLinking,
-        ];
+        ]));
     }
 
     /**
-     * Generate sitemaps, compress and sent to search engine
+     * Generate sitemap index and clean
      */
     public function generate()
     {
-        ksort($this->urls);
+        $this->close();
 
-        // Map files
-        $mapPaths = [];
+        // Map urls list
         $mapUrls = [];
-        foreach (array_chunk($this->urls, $this->limit) as $i => $urls) {
-            $mapPath = $this->basePath . $this->mapName . $i . self::XML_EXT . self::COMPRESS_EXT;
-            $mapUrl = $this->baseUrl . $this->mapName . $i . self::XML_EXT . self::COMPRESS_EXT;
-            $mapPaths[] = $mapPath;
-            $mapUrls[] = $mapUrl;
-
-            $this->writegz($mapPath, $this->tplMap($urls));
+        foreach (array_keys($this->mapPaths) as $i) {
+            $mapUrls[] = $this->baseUrl . $this->mapName . $i . self::XML_EXT . self::COMPRESS_EXT;
         }
 
         // Clean previous map files
         foreach (glob($this->basePath . $this->mapName . '*') as $filename) {
-            if (!in_array($filename, $mapPaths)) {
+            if (!in_array($filename, $this->mapPaths)) {
                 unlink($filename);
             }
         }
 
         // Index
         $indexPath =  $this->basePath . $this->indexName . self::XML_EXT;
-        file_put_contents($indexPath, $this->tplIndex($mapUrls));
+        file_put_contents($indexPath, self::tplIndex($mapUrls));
     }
 
     // -------------------------------------------------------------------------
 
-    private static function value(mixed $prev, mixed $value): mixed
-    {
-        return $prev === null || $value > $prev ? $value : $prev;
-    }
-
-    private function tplMap(array $urls): string
-    {
-        $urlContent = '';
-        foreach ($urls as $url) {
-            $urlContent .= $this->tplUrl($url) . self::EOL;
-        }
-
-        return '<?xml version="1.0" encoding="UTF-8"?>' . self::EOL
-            . '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">' . self::EOL
-            . $urlContent
-            . '</urlset>';
-    }
-
-    private function tplUrl(array $item): string
+    private static function tplUrl(array $item): string
     {
         // Build a new entry
         $out = '<url>';
@@ -140,10 +129,10 @@ class Creator
 
         $out .= "</url>";
 
-        return $out;
+        return $out . self::EOL;
     }
 
-    private function tplIndex(array $mapUrls)
+    private static function tplIndex(array $mapUrls)
     {
         $lastMod = date('Y-m-d\TH:i:sP');
 
@@ -162,11 +151,36 @@ class Creator
         return $out;
     }
 
-    private function writegz(string $file, string $content)
+    private function open()
     {
-        $gz = gzopen($file, 'w');
-        gzwrite($gz, $content);
-        gzclose($gz);
+        if ($this->writer) {
+            $this->close();
+        }
+
+        $this->writer = new GzWriter($this->basePath . uniqid() . '.tmp');
+        $this->writer->open();
+
+        $this->writer->write(
+            '<?xml version="1.0" encoding="UTF-8"?>'
+                . self::EOL
+                . '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">'
+                . self::EOL
+        );
+    }
+
+    private function close()
+    {
+        if ($this->writer) {
+            $this->writer->write('</urlset>');
+            $this->writer->close();
+
+            $mapPath = $this->basePath . $this->mapName . count($this->mapPaths) . self::XML_EXT . self::COMPRESS_EXT;
+            rename($this->writer->filename(), $mapPath);
+
+            $this->mapPaths[] = $mapPath;
+            $this->writer = null;
+            $this->nbUrls = 0;
+        }
     }
 
     // -------------------------------------------------------------------------
