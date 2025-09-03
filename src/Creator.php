@@ -25,7 +25,6 @@ class Creator
     private string $mapName;
     private int $limit;
 
-    private array $urls = [];
     private array $mapPaths = [];
 
     private ?GzWriter $writer = null;
@@ -62,15 +61,10 @@ class Creator
     {
         $url = ltrim($url, '/');
 
-        if (isset($this->urls[$url])) {
-            return;
-        }
-
         if ($this->nbUrls === 0 || $this->nbUrls >= $this->limit) {
             $this->open();
         }
 
-        $this->urls[$url] = true;
         $this->nbUrls++;
 
         $this->writer->write(self::tplUrl([
